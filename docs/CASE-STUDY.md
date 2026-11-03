@@ -1,7 +1,7 @@
 # Case study — Relay, a WhatsApp-first sales CRM with explainable AI
 
-**Role:** full-stack design & build (Laravel, PostgreSQL, Vue 3) · **Timeline:** MVP in ~3 weeks
-**Live artifacts:** [README](app/README.md) · [screenshots](screenshots/) · [2-minute demo video](demo.webm)
+**Role:** full-stack design & build (Laravel, PostgreSQL, Vue 3)
+**Live artifacts:** [README](../README.md) · [screenshots](screenshots/) · [35-second demo video](demo.webm)
 
 ## The client problem (persona: 3–30 person sales team at an agency/SMB)
 
@@ -62,11 +62,8 @@ its deal**, and where AI is only allowed to speak with citations.
   feature (webhook signature → 401, `wamid` dedup, 24h window enforcement,
   tenant isolation, merge/conversion dedup safety, AI output validation).
 - **PHPStan level 5** with zero errors; Pint for style.
-- **Playwright E2E** (headless): simulated lead enters → rep opens thread →
-  AI-drafted reply is edited and sent → message lands on the contact timeline.
+- **Playwright E2E** (headless): a simulated lead is answered with an AI-drafted reply, a deal is created and closed, an @mention reaches the bell, and settings editors work.
 
-## What I'd build next (already mapped)
+## What could come next
 
-Email channel in the same thread, sequences with reply-stop, forecast per rep,
-quote PDFs, custom fields — see [FEATURE-MAP](FEATURE-MAP.md) for the phase 2
-breakdown compared against Haliqq OS.
+Email and Instagram channels in the same thread, sequences with reply-stop, forecast per rep, quote PDFs and custom fields.

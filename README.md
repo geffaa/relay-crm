@@ -47,7 +47,7 @@ bank-account numbers are masked (`App\Support\Redactor`) before any text reaches
 model and again before the answer is stored. Every AI run is logged in `ai_runs`
 (model, tokens, status) and visible under Settings → AI.
 
-## Features (MVP)
+## Features
 
 | # | Feature | Where |
 |---|---|---|
@@ -151,8 +151,6 @@ without real `message_ids` are rejected; drafts never send; scores always show
   scoring is deterministic-structured first, AI is a bounded adjustment; every
   run is logged to `ai_runs`.
 
-## What's not in the MVP
+## Not included yet
 
-Email/Instagram channels, sequences, forecast/quotas, quote PDFs, custom-field
-builder, report builder — all mapped in
-[docs/FEATURE-MAP.md](docs/FEATURE-MAP.md) for phase 2+.
+Email and Instagram channels, sequences, a forecast view per rep, quote PDFs, a custom-field builder, a report builder, and media upload for live WhatsApp numbers.
