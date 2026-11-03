@@ -22,6 +22,23 @@ class ContactService
      * Find a contact by E.164 phone or email, or create a new one. Used by the
      * WhatsApp ingest pipeline so the same number never creates duplicates.
      */
+    public function normalizePhone(?string $phone): ?string
+    {
+        return $this->phone->toE164($phone);
+    }
+
+    /** Existing contact (incl. soft-deleted) matched by E.164 phone, then email; null when none. */
+    public function findExisting(Company $company, ?string $phone, ?string $email = null): ?Contact
+    {
+        $phoneE164 = $this->phone->toE164($phone);
+        $email = $email ? strtolower(trim($email)) : null;
+        $query = Contact::forCompany($company)->withTrashed();
+
+        $contact = $phoneE164 ? (clone $query)->where('phone_e164', $phoneE164)->first() : null;
+
+        return $contact ?: ($email ? (clone $query)->where('email', $email)->first() : null);
+    }
+
     public function findOrCreate(
         Company $company,
         ?string $name,

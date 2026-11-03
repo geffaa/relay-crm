@@ -124,6 +124,19 @@ GROQ_API_KEY=                 # Groq, OpenAI-compatible; GROQ_MODEL defaults to 
 ANTHROPIC_API_KEY=            # optional alternative; all empty = simulated AI (demo mode)
 ```
 
+## Integration API
+
+A small public API for automation hubs (built for the sibling project Simpul). Authenticate with `Authorization: Bearer rly_…`; create a key per company with `php artisan relay:api-key <company-slug> "<label>"` (the token is shown once, only its hash is stored).
+
+| Method and path | Purpose |
+|---|---|
+| `POST /api/v1/contacts/upsert` | Match by E.164 phone, then email; create or update; merge tags |
+| `POST /api/v1/contacts/{id}/activities` | Add a timeline note; idempotent per `external_ref` |
+| `POST /api/v1/contacts/{id}/tasks` | Create a task |
+| `POST /api/v1/deals` | Create a deal in the default pipeline; a retried call for the same contact and title returns the existing deal |
+
+Covered by `tests/Feature/IntegrationApiTest.php` (auth, phone-format matching, idempotency, tenant isolation).
+
 ## Testing
 
 ```bash
