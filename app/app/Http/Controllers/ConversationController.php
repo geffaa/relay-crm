@@ -131,8 +131,30 @@ class ConversationController extends Controller
                 'created_at' => $summary->created_at->toISOString(),
                 'model' => $summary->model,
             ] : null,
-            'users' => $this->users(),
+            'users' => $this->assignees(),
+            'roundRobin' => (bool) app('relay.company')->round_robin,
         ]);
+    }
+
+    /** @return array<int, array<string, mixed>> teammates with how many open chats each carries */
+    private function assignees(): array
+    {
+        $open = Conversation::query()->where('status', '!=', 'closed')->selectRaw('assignee_id, count(*) as n')->groupBy('assignee_id')->pluck('n', 'assignee_id');
+
+        return array_map(fn ($u) => $u + ['open' => (int) ($open[$u['id']] ?? 0)], $this->users());
+    }
+
+    public function attach(Request $request, Conversation $conversation): RedirectResponse
+    {
+        $user = $request->user();
+        if (! $user->isManager() && $conversation->assignee_id !== $user->id) {
+            abort(404);
+        }
+        $data = $request->validate(['file' => ['required', 'file', 'max:5120', 'mimes:jpg,jpeg,png,pdf'], 'caption' => ['nullable', 'string', 'max:1024']]);
+
+        $this->sender->sendAttachment($conversation, $request->file('file'), $data['caption'] ?? null, $user->id);
+
+        return back();
     }
 
     public function retry(Request $request, Conversation $conversation, int $message): RedirectResponse

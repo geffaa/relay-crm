@@ -18,7 +18,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Company extends Model
 {
-    protected $fillable = ['name', 'slug', 'currency', 'timezone'];
+    protected $fillable = ['name', 'slug', 'currency', 'timezone', 'round_robin'];
+
+    protected function casts(): array
+    {
+        return ['round_robin' => 'boolean'];
+    }
 
     /** @return BelongsToMany<User, $this> */
     public function users(): BelongsToMany

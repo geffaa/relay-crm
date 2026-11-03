@@ -11,6 +11,7 @@ import {
   ArrowRight, Building2, Check, ClipboardList, FileText, GitMerge, Hash, MessageCircle, Plus, Sparkles,
   StickyNote, Target, UserPlus, UserRound, X, ArrowRightLeft, ListChecks,
 } from 'lucide-vue-next'
+import { Phone, Ellipsis, UserCog } from 'lucide-vue-next'
 import { ago, dateTime, dueLabel, money, scoreColor, shortDate } from '@/lib/format'
 
 const props = defineProps({
@@ -61,7 +62,14 @@ function moveTo(s) {
 function confirmLost() { lostForm.patch(`/deals/${props.deal.id}/stage`, { preserveScroll: true, onSuccess: () => (lostOpen.value = false) }) }
 
 // composer
-const tab = ref('note')
+const tab = ref(['call', 'task'].includes(new URLSearchParams(window.location.search).get('tab')) ? new URLSearchParams(window.location.search).get('tab') : 'note')
+const call = useForm({ text: '', minutes: '' })
+function saveCall() { call.transform((d) => ({ ...d, minutes: d.minutes === '' ? null : d.minutes })).post(`/deals/${props.deal.id}/calls`, { preserveScroll: true, onSuccess: () => { call.reset(); tab.value = 'note' } }) }
+const ownerOpen = ref(false)
+const menuOpen = ref(false)
+const ownerId = ref(props.deal.owner?.id ?? null)
+const ownerOptions = computed(() => props.users.map((u) => ({ value: u.id, label: u.name, avatar: true })))
+function saveOwner() { router.post(`/deals/${props.deal.id}/owner`, { owner_id: ownerId.value }, { preserveScroll: true, onSuccess: () => (ownerOpen.value = false) }) }
 const note = useForm({ body: '' })
 const taskForm = useForm({ title: '', assignee_id: null, due_at: null })
 const taskOpen = ref(false)
@@ -91,6 +99,10 @@ function onNoteKey(e) { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && not
         <div v-if="open" class="acts">
           <button v-if="lostStage" type="button" class="btn" @click="moveTo(lostStage)"><X class="icon sm" />Lost</button>
           <button v-if="wonStage" type="button" class="btn primary" @click="moveTo(wonStage)"><Check class="icon sm" />Won</button>
+          <div v-if="$page.props.auth.user.role !== 'rep'" class="morewrap2">
+            <button type="button" class="ib" aria-label="More actions" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><Ellipsis class="icon" /></button>
+            <div v-if="menuOpen" class="pop menu" @mouseleave="menuOpen = false"><button type="button" @click="ownerOpen = true; menuOpen = false"><UserCog class="icon sm" />Change owner</button></div>
+          </div>
         </div>
         <div v-else class="acts"><span class="badge" :class="deal.stage.kind === 'won' ? 'success' : 'danger'">{{ deal.stage.name }}<template v-if="deal.closed_at"> · {{ shortDate(deal.closed_at) }}</template></span>
           <button type="button" class="btn sm" @click="moveTo(stages.find((s) => s.kind === 'open' && s.position === Math.max(...stages.filter((x) => x.kind === 'open').map((x) => x.position))))">Reopen</button></div>
@@ -117,12 +129,19 @@ function onNoteKey(e) { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && not
             <div class="tabs" role="tablist">
               <button type="button" role="tab" :aria-selected="tab === 'note'" @click="tab = 'note'"><FileText class="icon xs" />Note</button>
               <Link v-if="conversationId" role="tab" :href="`/inbox/${conversationId}`" class="tablink"><MessageCircle class="icon xs" />WhatsApp</Link>
+              <button type="button" role="tab" :aria-selected="tab === 'call'" @click="tab = 'call'"><Phone class="icon xs" />Call</button>
               <button type="button" role="tab" :aria-selected="tab === 'task'" @click="tab = 'task'"><ClipboardList class="icon xs" />Task</button>
             </div>
             <form v-if="tab === 'note'" @submit.prevent="saveNote">
               <textarea v-model="note.body" rows="2" class="ta" placeholder="Add a note · @name to notify a teammate" aria-label="Note" @keydown="onNoteKey" />
               <span v-if="note.errors.body" class="ferr">{{ note.errors.body }}</span>
               <div class="cf"><button class="btn sm primary" :disabled="note.processing || !note.body">Save note<kbd>⌘↵</kbd></button></div>
+            </form>
+            <form v-else-if="tab === 'call'" class="tform" @submit.prevent="saveCall">
+              <textarea v-model="call.text" rows="2" class="input" placeholder="What was discussed?" aria-label="Call notes" />
+              <div class="trow"><input v-model="call.minutes" class="input" inputmode="numeric" placeholder="Minutes (optional)" aria-label="Call length in minutes" autocomplete="off"><span /></div>
+              <span v-if="call.errors.text" class="ferr">{{ call.errors.text }}</span>
+              <div class="cf"><button class="btn sm primary" :disabled="call.processing || !call.text">Log call</button></div>
             </form>
             <form v-else @submit.prevent="saveTask" class="tform">
               <input v-model="taskForm.title" class="input" placeholder="What needs to happen?" aria-label="Task" autocomplete="off">
@@ -159,6 +178,7 @@ function onNoteKey(e) { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && not
             <dl class="kv">
               <dt>Pipeline</dt><dd>{{ deal.pipeline.name }}</dd>
               <dt>Stage</dt><dd>{{ deal.stage.name }}</dd>
+              <dt>Source</dt><dd>{{ deal.contact?.source ?? '—' }}</dd>
               <dt>Currency</dt><dd>{{ deal.currency }}</dd>
               <dt>Owner</dt><dd>{{ deal.owner?.name ?? '—' }}</dd>
               <dt>Created</dt><dd>{{ dateTime(created_at) }}</dd>
@@ -176,6 +196,13 @@ function onNoteKey(e) { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && not
       <p class="synthetic">Synthetic demo data.</p>
     </div>
 
+    <Modal v-if="ownerOpen" title="Change owner" width="380px" @close="ownerOpen = false">
+      <form class="form" @submit.prevent="saveOwner">
+        <div class="field"><label>Owner</label><RSelect v-model="ownerId" :options="ownerOptions" label="Owner" block /></div>
+        <div class="actions"><button type="button" class="btn ghost" @click="ownerOpen = false">Cancel</button><button type="submit" class="btn primary">Save owner</button></div>
+      </form>
+    </Modal>
+
     <Modal v-if="lostOpen" title="Mark deal lost" width="400px" @close="lostOpen = false">
       <form class="form" @submit.prevent="confirmLost">
         <p class="muted small">A reason is required. It feeds the lost-reasons chart in Insights.</p>
@@ -192,6 +219,8 @@ function onNoteKey(e) { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && not
 .meta{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:6px;color:var(--text-3)}
 .meta span{display:inline-flex;align-items:center;gap:6px}
 .acts{margin-left:auto;display:flex;gap:8px;align-items:center}
+.morewrap2{position:relative}.menu{position:absolute;right:0;top:36px;z-index:30;min-width:170px;padding:4px}
+.menu button{display:flex;align-items:center;gap:8px;width:100%;border:0;background:none;padding:8px 10px;border-radius:var(--r-sm);text-align:left}.menu button:hover{background:var(--hover)}
 .lostnote{display:flex;align-items:center;gap:6px;color:var(--danger);margin:-6px 0 var(--s4);font-size:13px}
 .kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);margin-bottom:var(--s4)}
 .kpis>div{padding:14px 16px;border-right:1px solid var(--line);display:grid;gap:4px;min-width:0}

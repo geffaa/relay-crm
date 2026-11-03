@@ -7,7 +7,7 @@ import RSelect from '@/Components/RSelect.vue'
 import DateField from '@/Components/DateField.vue'
 import Modal from '@/Components/Modal.vue'
 import UserAvatar from '@/Components/UserAvatar.vue'
-import { Flame, Hourglass, KanbanSquare, MessageCircle, Plus, Target, UserRound, CalendarClock, Layers } from 'lucide-vue-next'
+import { TrendingDown, Flame, Hourglass, Kanban as KanbanSquare, MessageCircle, Plus, Target, UserRound, CalendarClock, Layers } from 'lucide-vue-next'
 import { money, scoreColor, shortDate } from '@/lib/format'
 
 const props = defineProps({
@@ -21,6 +21,8 @@ const color = (s) => COLORS[s.name] ?? (s.kind === 'won' ? '#146C35' : s.kind ==
 const view = computed(() => props.filters.view)
 const ownerOptions = computed(() => [{ value: 0, label: 'Owner: everyone' }, ...props.owners.map((o) => ({ value: o.id, label: o.name }))])
 const owner = computed(() => props.filters.owner ?? 0)
+const CLOSE = [{ value: '', label: 'Close date: any' }, { value: 'overdue', label: 'Overdue' }, { value: 'month', label: 'This month' }, { value: '30d', label: 'Next 30 days' }]
+const HEALTH = [{ value: '', label: 'Filters: none' }, { value: 'stuck', label: 'Stuck only' }, { value: 'unreplied', label: 'Unreplied chats' }]
 
 const open = computed(() => props.stages.filter((s) => s.kind === 'open'))
 const totals = computed(() => ({
@@ -28,6 +30,7 @@ const totals = computed(() => ({
   weighted: open.value.reduce((a, s) => a + s.weighted, 0),
   deals: props.stages.reduce((a, s) => a + s.count, 0),
 }))
+const visibleStages = computed(() => props.stages.filter((s) => s.kind !== 'lost' || props.filters.lost || drag.value !== null))
 const rows = computed(() => props.stages.flatMap((s) => s.deals.map((d) => ({ ...d, stage: s }))))
 
 function go(extra = {}) {
@@ -35,8 +38,8 @@ function go(extra = {}) {
   for (const k of Object.keys(q)) if (!q[k] || (k === 'view' && q[k] === 'board')) delete q[k]
   router.get('/pipeline', q, { preserveScroll: true, preserveState: true, replace: true })
 }
-const savedView = (key) => go({ stuck: 0, hot: 0, closing: 0, mine: 0, owner: 0, ...(key ? { [key]: 1 } : {}) })
-const isSaved = (key) => (key ? props.filters[key] : !['stuck', 'hot', 'closing', 'mine'].some((k) => props.filters[k]))
+const savedView = (key) => go({ stuck: 0, hot: 0, closing: 0, mine: 0, lost: 0, close: '', health: '', owner: 0, ...(key ? { [key]: 1 } : {}) })
+const isSaved = (key) => (key ? props.filters[key] : !['stuck', 'hot', 'closing', 'mine', 'lost'].some((k) => props.filters[k]))
 
 // drag and drop
 const drag = ref(null)
@@ -95,6 +98,7 @@ const unrepliedText = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h`)
         <a href="#" :aria-current="isSaved('stuck') ? 'page' : undefined" @click.prevent="savedView('stuck')"><Hourglass class="icon" />Stuck<span class="n">{{ views.stuck }}</span></a>
         <a href="#" :aria-current="isSaved('hot') ? 'page' : undefined" @click.prevent="savedView('hot')"><Flame class="icon" />Hot (score 70+)<span class="n">{{ views.hot }}</span></a>
         <a href="#" :aria-current="isSaved('closing') ? 'page' : undefined" @click.prevent="savedView('closing')"><CalendarClock class="icon" />Closing this month<span class="n">{{ views.closing }}</span></a>
+        <a href="#" :aria-current="isSaved('lost') ? 'page' : undefined" @click.prevent="savedView('lost')"><TrendingDown class="icon" />Lost this quarter<span class="n">{{ views.lost }}</span></a>
       </div>
     </template>
 
@@ -110,6 +114,8 @@ const unrepliedText = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h`)
         <button type="button" :aria-pressed="view === 'forecast'" @click="go({ view: 'forecast' })">Forecast</button>
       </div>
       <RSelect :model-value="owner" :options="ownerOptions" label="Owner" @change="(v) => go({ owner: v, mine: 0 })" />
+      <RSelect :model-value="filters.close ?? ''" :options="CLOSE" label="Close date" @change="(v) => go({ close: v })" />
+      <RSelect :model-value="filters.health ?? ''" :options="HEALTH" label="More filters" @change="(v) => go({ health: v })" />
       <span class="sum"><b class="fig">{{ money(totals.value, currency) }}</b> open · weighted <b class="fig">{{ money(totals.weighted, currency) }}</b> · {{ totals.deals }} deals</span>
     </div>
 
@@ -117,7 +123,7 @@ const unrepliedText = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h`)
     <div v-if="view === 'board'" class="content board-scroll">
       <div class="board">
         <section
-          v-for="stage in stages" :key="stage.id" class="col" :class="{ over: over === stage.id }"
+          v-for="stage in visibleStages" :key="stage.id" class="col" :class="{ over: over === stage.id }"
           :aria-label="`${stage.name}, ${stage.count} deals`"
           @dragover.prevent="over = stage.id" @dragleave="over === stage.id && (over = null)" @drop.prevent="onDrop(stage)"
         >
@@ -129,7 +135,7 @@ const unrepliedText = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h`)
           </header>
           <div class="cards">
             <Link v-for="deal in stage.deals" :key="deal.id" :href="`/deals/${deal.id}`" class="dcard" draggable="true" @dragstart="drag = deal.id" @dragend="drag = null">
-              <div class="row1"><span class="muted small fig">#{{ String(deal.id).padStart(4, '0') }}</span><span class="muted small fig" :class="{ late: deal.stale }">{{ deal.days_in_stage }}d</span></div>
+              <div class="row1"><span class="muted small fig">#{{ String(deal.id).padStart(4, '0') }}</span><span class="muted small fig" :class="{ late: deal.stale }">{{ stage.kind !== 'open' && deal.closed_at ? `${stage.kind === 'won' ? 'Won' : 'Lost'} ${shortDate(deal.closed_at)}` : `${deal.days_in_stage}d` }}</span></div>
               <div class="t">{{ deal.title }}</div>
               <div class="muted small acct">{{ deal.account }}</div>
               <div class="row2">
@@ -219,7 +225,7 @@ const unrepliedText = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h`)
 .sum{margin-left:auto;color:var(--text-3);font-size:13px}.sum b{color:var(--text)}
 .board-scroll{overflow-x:auto}
 .board{display:flex;gap:14px;align-items:flex-start;padding-bottom:8px}
-.col{flex:0 0 250px;min-height:140px}
+.col{flex:1 1 200px;min-width:200px;min-height:140px}
 .col.over .cards{outline:2px dashed var(--brand);outline-offset:-2px;border-radius:var(--r)}
 .col-h{position:relative;display:flex;align-items:center;gap:8px;padding:4px 2px 12px}
 .col-h .tot{margin-left:auto}

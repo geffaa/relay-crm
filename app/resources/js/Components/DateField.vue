@@ -26,7 +26,7 @@ function iso(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 function startOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1) }
 
 const display = computed(() => props.modelValue
-  ? parse(props.modelValue).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  ? parse(props.modelValue).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
   : '')
 const title = computed(() => view.value.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }))
 const todayIso = iso(new Date())

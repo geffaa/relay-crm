@@ -6,6 +6,8 @@ use App\Models\Activity;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageTemplate;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -36,6 +38,39 @@ class MessageSender
 
             throw $e;
         }
+
+        return $message;
+    }
+
+    /**
+     * Sends a file with an optional caption. Simulated numbers store the file locally;
+     * live numbers need the Cloud API media upload, which this build does not include.
+     */
+    public function sendAttachment(Conversation $conversation, UploadedFile $file, ?string $caption, ?int $userId): Message
+    {
+        $number = $conversation->whatsappNumber;
+
+        throw_if($number->mode !== 'simulated', ValidationException::withMessages(['file' => 'Attachments on live numbers need Cloud API media upload, which is not part of this build.']));
+        throw_if(! $conversation->canSendFreeform(), ValidationException::withMessages(['file' => 'The 24-hour window is closed. Use a template first.']));
+
+        $path = $file->store('whatsapp-media', 'public');
+        $isImage = str_starts_with((string) $file->getMimeType(), 'image/');
+
+        $message = new Message([
+            'direction' => 'out',
+            'type' => $isImage ? 'image' : 'document',
+            'body' => $caption,
+            'media' => ['filename' => $file->getClientOriginalName(), 'mime_type' => $file->getMimeType(), 'size' => $file->getSize(), 'url' => Storage::disk('public')->url($path)],
+            'status' => 'sent',
+            'sent_by' => $userId,
+        ]);
+        $message->conversation_id = $conversation->id;
+        $message->save();
+
+        $conversation->update(['last_message_at' => now(), 'unread_count' => 0]);
+        Activity::record($conversation->company_id, $conversation->contact, 'message', $userId, [
+            'direction' => 'out', 'text' => '[attachment] '.$file->getClientOriginalName(), 'conversation_id' => $conversation->id,
+        ]);
 
         return $message;
     }

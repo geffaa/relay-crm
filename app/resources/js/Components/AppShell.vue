@@ -4,8 +4,8 @@ import { Link, router, usePage } from '@inertiajs/vue3'
 import CommandPalette from '@/Components/CommandPalette.vue'
 import { ago } from '@/lib/format'
 import {
-  BarChart3, Bell, Building2, CalendarCheck, Ellipsis, Inbox, LogOut, Settings2,
-  SquareKanban, Target, Users, Workflow,
+  Bell, Building2, ChartPie, Contact, Ellipsis, Inbox, Kanban, LogOut, Settings2,
+  SunMedium, UserRoundPlus, Workflow,
 } from 'lucide-vue-next'
 
 defineProps({ hasContext: { type: Boolean, default: false } })
@@ -16,14 +16,14 @@ const notes = computed(() => page.props.notifications ?? { unread: 0, items: [] 
 const isAdmin = computed(() => page.props.auth.user?.role === 'admin')
 
 const items = computed(() => [
-  { name: 'Today', href: '/', icon: CalendarCheck, badge: badges.value.today },
+  { name: 'Today', href: '/', icon: SunMedium, badge: badges.value.today },
   { name: 'Inbox', href: '/inbox', icon: Inbox, badge: badges.value.inbox },
-  { name: 'Deals', href: '/pipeline', icon: SquareKanban },
-  { name: 'Contacts', href: '/contacts', icon: Users },
+  { name: 'Deals', href: '/pipeline', icon: Kanban },
+  { name: 'Contacts', href: '/contacts', icon: Contact },
   { name: 'Companies', href: '/companies', icon: Building2 },
-  { name: 'Leads', href: '/leads', icon: Target },
+  { name: 'Leads', href: '/leads', icon: UserRoundPlus, badge: badges.value.leads },
   { name: 'Automation', icon: Workflow, soon: true },
-  { name: 'Insights', href: '/insights', icon: BarChart3 },
+  { name: 'Insights', href: '/insights', icon: ChartPie },
 ])
 const tabs = computed(() => items.value.filter((i) => ['Today', 'Inbox', 'Deals', 'Contacts'].includes(i.name)))
 const more = computed(() => items.value.filter((i) => ['Companies', 'Leads', 'Insights'].includes(i.name)))

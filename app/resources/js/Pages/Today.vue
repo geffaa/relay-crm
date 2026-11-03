@@ -4,11 +4,12 @@ import { Link, router } from '@inertiajs/vue3'
 import AppShell from '@/Components/AppShell.vue'
 import Topbar from '@/Components/Topbar.vue'
 import UserAvatar from '@/Components/UserAvatar.vue'
+import RSelect from '@/Components/RSelect.vue'
 import {
-  CalendarCheck, Check, CheckCheck, Flame, Hourglass, ListTodo, MessageCircle, Phone,
-  Reply, SquareKanban, UserRound, Users,
+  AlarmClock, Calendar, CalendarCheck, Check, CheckCheck, FileText, Flame, Hourglass, ListFilter, ListTodo,
+  MessageCircle, Phone, Kanban, Reply, UserRound, Users,
 } from 'lucide-vue-next'
-import { dueLabel, longDate, money, scoreColor, waited } from '@/lib/format'
+import { ago, dueLabel, longDate, money, scoreColor, waited } from '@/lib/format'
 
 const props = defineProps({
   scope: String, canTeam: Boolean, replies: Array, tasks: Array, stuck: Array,
@@ -36,7 +37,17 @@ function onKey(e) {
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => window.removeEventListener('keydown', onKey))
 
-const taskIcon = { call: Phone, manual: ListTodo }
+const taskIcon = { call: Phone, send: FileText, meeting: Calendar, manual: ListTodo }
+const taskAction = { call: 'Log call', send: 'Open deal', meeting: 'Schedule', manual: 'Open' }
+const STAGE = { New: '#6B6779', Qualified: '#2F62CC', Proposal: '#8A3FC0', Negotiation: '#9A5A06' }
+const show = ref('all')
+const SHOW = [{ value: 'all', label: 'All queues' }, { value: 'replies', label: 'Reply now' }, { value: 'tasks', label: 'Follow up' }, { value: 'stuck', label: 'Stuck deals' }]
+const quarter = Math.floor(new Date().getMonth() / 3) + 1
+const snooze = (type, id) => router.post('/snooze', { type, id, hours: 4 }, { preserveScroll: true })
+const nudge = (d) => router.post(`/deals/${d.id}/nudge`, {}, { preserveScroll: true })
+const taskLink = (t) => (t.deal_id && t.kind === 'call' ? `/deals/${t.deal_id}?tab=call` : t.href)
+const wonPct = computed(() => (props.pace.quota ? Math.round((100 * props.pace.won) / props.pace.quota) : 0))
+const expectedPct = computed(() => Math.round((100 * props.pace.day) / props.pace.days))
 const paceUp = computed(() => props.pace.won >= props.pace.previous)
 const maxSeries = computed(() => Math.max(1, ...(props.replyTime.series ?? [1])))
 const spark = computed(() => {
@@ -58,9 +69,12 @@ const spark = computed(() => {
               <p v-if="total">{{ total }} {{ total === 1 ? 'thing' : 'things' }} in the queue<template v-if="oldest"> · oldest chat waiting {{ oldest }}</template></p>
               <p v-else>Nothing in the queue.</p>
             </div>
-            <div v-if="canTeam" class="chips" role="group" aria-label="Whose queue">
-              <button type="button" class="chip" :class="{ on: scope === 'mine' }" :aria-pressed="scope === 'mine'" @click="setScope('mine')"><UserRound class="icon xs" />Mine</button>
-              <button type="button" class="chip" :class="{ on: scope === 'team' }" :aria-pressed="scope === 'team'" @click="setScope('team')"><Users class="icon xs" />Team</button>
+            <div class="chips" role="group" aria-label="Whose queue">
+              <template v-if="canTeam">
+                <button type="button" class="chip" :class="{ on: scope === 'mine' }" :aria-pressed="scope === 'mine'" @click="setScope('mine')"><UserRound class="icon xs" />Mine</button>
+                <button type="button" class="chip" :class="{ on: scope === 'team' }" :aria-pressed="scope === 'team'" @click="setScope('team')"><Users class="icon xs" />Team</button>
+              </template>
+              <RSelect v-model="show" :options="SHOW" label="Show queue" size="sm" />
             </div>
           </div>
 
@@ -70,7 +84,7 @@ const spark = computed(() => {
             <span class="muted small">Unanswered chats, follow-ups and stuck deals appear here as they come up.</span>
           </div>
 
-          <section v-if="replies.length" class="q" aria-labelledby="q1">
+          <section v-if="replies.length && ['all', 'replies'].includes(show)" class="q" aria-labelledby="q1">
             <div class="q-h">
               <span style="color:var(--hot)"><Flame class="icon sm" /></span><h3 id="q1">Reply now</h3><span class="n">{{ replies.length }}</span>
               <span class="hint"><kbd>J</kbd><kbd>K</kbd> move · <kbd>R</kbd> reply</span>
@@ -87,42 +101,42 @@ const spark = computed(() => {
                   <span class="wait">{{ waited(r.since) }}</span>
                   <span v-if="r.score != null" class="score" :title="`Lead score ${r.score}`"><i :style="{ background: scoreColor(r.score) }" />{{ r.score }}</span>
                 </div>
-                <div class="acts"><Link class="btn sm primary" :href="r.href"><Reply class="icon xs" />Reply<kbd v-if="i === sel">R</kbd></Link></div>
+                <div class="acts"><Link class="btn sm primary" :href="r.href"><Reply class="icon xs" />Reply<kbd>R</kbd></Link><button type="button" class="btn sm ghost" aria-label="Snooze for 4 hours" title="Snooze 4 h" @click.stop="snooze('conversation', r.id)"><AlarmClock class="icon xs" /></button></div>
               </div>
             </div>
           </section>
 
-          <section v-if="tasks.length" class="q" aria-labelledby="q2">
+          <section v-if="tasks.length && ['all', 'tasks'].includes(show)" class="q" aria-labelledby="q2">
             <div class="q-h"><span class="muted"><ListTodo class="icon sm" /></span><h3 id="q2">Follow up</h3><span class="n">{{ tasks.length }}</span></div>
             <div class="items">
               <div v-for="t in tasks" :key="t.id" class="item">
                 <span class="ty"><component :is="taskIcon[t.kind] ?? ListTodo" class="icon sm" /></span>
                 <UserAvatar :name="t.subject ?? t.title" />
                 <div style="min-width:0">
-                  <div class="nm"><component :is="t.href ? Link : 'b'" :href="t.href" class="rowlink"><b>{{ t.subject ?? 'Task' }}</b></component></div>
+                  <div class="nm"><component :is="t.href ? Link : 'b'" :href="t.href" class="rowlink"><b>{{ t.subject ?? 'Task' }}</b></component><span v-if="t.deal" class="muted small"> · {{ t.deal }}</span></div>
                   <div class="msg">{{ t.title }}</div>
                 </div>
-                <div class="meta"><span :class="{ wait: dueLabel(t.due_at).hot }">{{ dueLabel(t.due_at).text }}</span></div>
+                <div class="meta"><span :class="{ wait: dueLabel(t.due_at).hot }">{{ dueLabel(t.due_at).text }}</span><span v-if="t.stage" class="stage"><i :style="{ background: STAGE[t.stage] ?? '#6B6779' }" />{{ t.stage }}</span></div>
                 <div class="acts">
-                  <Link v-if="t.href" class="btn sm" :href="t.href">Open</Link>
+                  <Link v-if="taskLink(t)" class="btn sm" :href="taskLink(t)"><Phone v-if="t.kind === 'call'" class="icon xs" />{{ taskAction[t.kind] ?? 'Open' }}</Link>
                   <button type="button" class="btn sm ghost" aria-label="Mark done" @click="done(t)"><Check class="icon xs" /></button>
                 </div>
               </div>
             </div>
           </section>
 
-          <section v-if="stuck.length" class="q" aria-labelledby="q3">
+          <section v-if="stuck.length && ['all', 'stuck'].includes(show)" class="q" aria-labelledby="q3">
             <div class="q-h"><span style="color:var(--warning)"><Hourglass class="icon sm" /></span><h3 id="q3">Stuck deals</h3><span class="n">{{ stuck.length }}</span></div>
             <div class="items">
               <div v-for="d in stuck" :key="d.id" class="item">
-                <span class="ty"><SquareKanban class="icon sm" /></span>
+                <span class="ty"><Kanban class="icon sm" /></span>
                 <UserAvatar :name="d.name" />
                 <div style="min-width:0">
                   <div class="nm"><Link :href="d.href" class="rowlink"><b>{{ d.name }}</b></Link> <span class="muted small">· {{ d.title }}<template v-if="d.value"> · {{ money(d.value, d.currency) }}</template></span></div>
-                  <div class="msg">{{ d.days }} days in {{ d.stage }} (limit {{ d.limit }})</div>
+                  <div class="msg">{{ d.days }} days in {{ d.stage }} (limit {{ d.limit }})<template v-if="d.last_touch"> · last touch {{ ago(d.last_touch) }}</template></div>
                 </div>
-                <div class="meta"><span class="stage">{{ d.stage }}</span></div>
-                <div class="acts"><Link class="btn sm" :href="d.href">Open deal</Link></div>
+                <div class="meta"><span class="stage"><i :style="{ background: STAGE[d.stage] ?? '#6B6779' }" />{{ d.stage }}</span></div>
+                <div class="acts"><button type="button" class="btn sm" @click="nudge(d)">Nudge</button><button type="button" class="btn sm ghost" aria-label="Snooze for 4 hours" title="Snooze 4 h" @click="snooze('deal', d.id)"><AlarmClock class="icon xs" /></button></div>
               </div>
             </div>
           </section>
@@ -132,10 +146,14 @@ const spark = computed(() => {
 
         <aside class="side">
           <section class="panel">
-            <div class="panel-h"><h2>Won this quarter</h2><span class="badge brand" style="margin-left:auto">Day {{ pace.day }} of {{ pace.days }}</span></div>
+            <div class="panel-h"><h2>{{ pace.quota ? `Q${quarter} target` : 'Won this quarter' }}</h2><span class="badge brand" style="margin-left:auto">Day {{ pace.day }} of {{ pace.days }}</span></div>
             <div class="panel-b pace">
-              <div><span class="big fig">{{ money(pace.won, currency) }}</span></div>
-              <div class="row"><span>{{ money(pace.previous, currency) }} at this point last quarter</span><span v-if="pace.won || pace.previous" :style="{ color: paceUp ? 'var(--success)' : 'var(--danger)' }">{{ paceUp ? 'Ahead' : 'Behind' }}</span></div>
+              <div><span class="big fig">{{ money(pace.won, currency) }}</span><span v-if="pace.quota" class="muted"> of {{ money(pace.quota, currency) }}</span></div>
+              <template v-if="pace.quota">
+                <div class="bar" role="img" :aria-label="`${wonPct}% of target, expected ${expectedPct}% by today`"><i :style="{ width: Math.min(100, wonPct) + '%' }" /><b :style="{ left: expectedPct + '%' }" /></div>
+                <div class="row"><span>{{ wonPct }}% won · {{ wonPct >= expectedPct ? 'ahead of pace' : 'behind pace' }}</span><span>Marker: expected by today</span></div>
+              </template>
+              <div v-else class="row"><span>{{ money(pace.previous, currency) }} at this point last quarter</span><span v-if="pace.won || pace.previous" :style="{ color: paceUp ? 'var(--success)' : 'var(--danger)' }">{{ paceUp ? 'Ahead' : 'Behind' }}</span></div>
             </div>
           </section>
 

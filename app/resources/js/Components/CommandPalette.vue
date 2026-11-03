@@ -5,15 +5,26 @@ import { Search, CornerDownLeft } from 'lucide-vue-next'
 
 const open = ref(false)
 const q = ref('')
-const results = ref({ contacts: [], deals: [], leads: [] })
+const results = ref({ contacts: [], deals: [], leads: [], companies: [] })
 const activeIdx = ref(0)
 const inputEl = ref(null)
 
-const flat = computed(() => [
-  ...results.value.contacts.map((r) => ({ ...r, group: 'Contacts' })),
-  ...results.value.deals.map((r) => ({ ...r, group: 'Deals' })),
-  ...results.value.leads.map((r) => ({ ...r, group: 'Leads' })),
-])
+const flat = computed(() => {
+  const r = results.value
+  const jump = [
+    ...r.deals.map((x) => ({ ...x, group: 'Jump to', kind: 'Deal' })),
+    ...r.contacts.map((x) => ({ ...x, group: 'Jump to', kind: 'Contact' })),
+    ...r.companies.map((x) => ({ ...x, group: 'Jump to', kind: 'Company' })),
+    ...r.leads.map((x) => ({ ...x, group: 'Jump to', kind: 'Lead' })),
+  ]
+  const actions = []
+  const c = r.contacts.find((x) => x.conversation_id)
+  const d = r.deals[0]
+  if (c) actions.push({ id: `a-reply`, group: 'Actions', title: `Reply to ${c.title} on WhatsApp`, kbd: 'R', href: `/inbox/${c.conversation_id}` })
+  if (d) actions.push({ id: 'a-task', group: 'Actions', title: `Create task for ${d.deal_title ?? d.title}`, kbd: 'T', href: `/deals/${d.id}?tab=task` })
+  if (d?.next_stage) actions.push({ id: 'a-move', group: 'Actions', title: `Move ${d.deal_title ?? d.title} to ${d.next_stage.name}`, kbd: 'M', move: { deal: d.id, stage: d.next_stage.id } })
+  return [...jump, ...actions]
+})
 
 const quickLinks = [
   { title: 'Today', href: '/', kbd: 'G T' },
@@ -30,7 +41,7 @@ let searchTimer = null
 watch(q, (value) => {
   clearTimeout(searchTimer)
   if (value.trim().length < 2) {
-    results.value = { contacts: [], deals: [], leads: [] }
+    results.value = { contacts: [], deals: [], leads: [], companies: [] }
     return
   }
   searchTimer = setTimeout(async () => {
@@ -58,6 +69,7 @@ function hide() {
 
 function go(item) {
   hide()
+  if (item.move) return router.patch(`/deals/${item.move.deal}/stage`, { stage_id: item.move.stage }, { preserveScroll: true })
   router.get(item.href)
 }
 
@@ -125,7 +137,7 @@ defineExpose({ show })
           <input
             ref="inputEl"
             v-model="q"
-            placeholder="Search contacts, deals, leads…"
+            placeholder="Search deals, contacts, companies…"
             @keydown="onKeydown"
           >
           <kbd>esc</kbd>
@@ -142,8 +154,10 @@ defineExpose({ show })
                 @click="go(item)"
               >
                 <span class="t">{{ item.title }}</span>
-                <span class="muted small">{{ item.subtitle }}</span>
-                <CornerDownLeft v-if="i === activeIdx" class="icon xs" style="margin-left:auto" />
+                <span v-if="item.subtitle && item.group === 'Jump to'" class="muted small sub">{{ item.subtitle }}</span>
+                <CornerDownLeft v-if="i === activeIdx && !item.kbd" class="icon xs" style="margin-left:auto" />
+                <span v-else-if="item.kind" class="muted small" style="margin-left:auto">{{ item.kind }}</span>
+                <kbd v-else-if="item.kbd" style="margin-left:auto">{{ item.kbd }}</kbd>
               </button>
             </template>
           </template>
@@ -163,12 +177,16 @@ defineExpose({ show })
             No matches for “{{ q }}”.
           </p>
         </div>
+        <div class="pal-foot"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>
       </div>
     </div>
   </Teleport>
 </template>
 
 <style scoped>
+.pal-foot{display:flex;gap:16px;padding:8px 12px;border-top:1px solid var(--line);font-size:12px;color:var(--text-3)}
+.pal-foot kbd{margin-right:4px}
+.sub{margin-left:8px}
 .pal-bg {
   position: fixed;
   inset: 0;

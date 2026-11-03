@@ -17,6 +17,10 @@ class RoundRobinAssigner
 
     public function nextRep(Company $company): ?User
     {
+        if (! $company->round_robin) {
+            return null; // Admin turned automatic assignment off: new chats stay unassigned.
+        }
+
         $reps = $company->users()
             ->wherePivot('is_active', true)
             ->whereIn('company_user.role', ['rep', 'manager'])

@@ -7,7 +7,7 @@ import RSelect from '@/Components/RSelect.vue'
 import TimeField from '@/Components/TimeField.vue'
 import Modal from '@/Components/Modal.vue'
 import UserAvatar from '@/Components/UserAvatar.vue'
-import { ArrowDown, ArrowUp, Clock, FileText, KanbanSquare, MessageCircle, Plus, Sparkles, Trash2, Users } from 'lucide-vue-next'
+import { ArrowDown, ArrowUp, Shuffle, Clock, FileText, KanbanSquare, MessageCircle, Plus, Sparkles, Trash2, Users } from 'lucide-vue-next'
 import { dateTime } from '@/lib/format'
 
 const props = defineProps({
@@ -17,13 +17,22 @@ const props = defineProps({
 
 const sections = [
   { key: 'team', label: 'Team', icon: Users }, { key: 'pipeline', label: 'Pipeline', icon: KanbanSquare },
-  { key: 'templates', label: 'Message templates', icon: FileText }, { key: 'channels', label: 'WhatsApp and hours', icon: MessageCircle },
+  { key: 'templates', label: 'Message templates', icon: FileText }, { key: 'channels', label: 'WhatsApp and hours', icon: MessageCircle }, { key: 'assign', label: 'Assignment', icon: Shuffle },
   { key: 'ai', label: 'AI', icon: Sparkles },
 ]
 const section = ref('team')
 const ROLES = [{ value: 'admin', label: 'Admin' }, { value: 'manager', label: 'Manager' }, { value: 'rep', label: 'Rep' }]
 
 const setRole = (u, role) => router.post(`/settings/users/${u.id}/role`, { role }, { preserveScroll: true })
+const setRoundRobin = () => router.post('/settings/company', { round_robin: !props.company.round_robin }, { preserveScroll: true })
+const quotas = ref({})
+const quota = (u) => (quotas.value[u.id] ??= u.quota === null ? '' : String(Math.round(u.quota)))
+function saveQuota(u) {
+  const v = quota(u)
+  if (String(u.quota ?? '') === v || (u.quota === null && v === '')) return
+  router.post(`/settings/users/${u.id}/quota`, { quota: v === '' ? null : v }, { preserveScroll: true })
+}
+props.users.forEach(quota)
 const setActive = (u) => router.post(`/settings/users/${u.id}/active`, { is_active: !u.is_active }, { preserveScroll: true })
 
 // pipeline stages
@@ -82,10 +91,11 @@ const pipeline = computed(() => props.pipelines[0])
       <section v-if="section === 'team'" class="panel">
         <div class="panel-h"><h2>Team</h2><span class="muted small" style="margin-left:auto">Admins manage settings. Managers see every deal. Reps see their own.</span></div>
         <div class="tablewrap"><table class="t">
-          <thead><tr><th>Person</th><th>Role</th><th>Active</th></tr></thead>
+          <thead><tr><th>Person</th><th>Role</th><th>Quarterly target</th><th>Active</th></tr></thead>
           <tbody><tr v-for="u in users" :key="u.id">
             <td><span class="who"><UserAvatar :name="u.name" /><span><b>{{ u.name }}</b><small class="muted">{{ u.email }}</small></span></span></td>
             <td style="width:150px"><RSelect :model-value="u.role" :options="ROLES" :label="`Role for ${u.name}`" size="sm" block @change="(v) => setRole(u, v)" /></td>
+            <td style="width:200px"><label class="qt"><span class="muted small">{{ company.currency }}</span><input v-model="quotas[u.id]" class="input" inputmode="numeric" :placeholder="u.role === 'admin' ? '—' : 'No target'" :aria-label="`Quarterly target for ${u.name}`" :disabled="u.role === 'admin'" autocomplete="off" @focus="quota(u)" @blur="saveQuota(u)" @keydown.enter.prevent="$event.target.blur()"></label></td>
             <td><button type="button" class="swt" role="switch" :aria-checked="u.is_active" :aria-label="`${u.name} active`" @click="setActive(u)"><span class="track" /></button></td>
           </tr></tbody>
         </table></div>
@@ -146,6 +156,16 @@ const pipeline = computed(() => props.pipelines[0])
         </section>
       </div>
 
+      <section v-else-if="section === 'assign'" class="panel">
+        <div class="panel-h"><h2>Assignment and AI policy</h2></div>
+        <div class="panel-b policy">
+          <div class="prow"><button type="button" class="swt" role="switch" :aria-checked="company.round_robin" aria-label="Round-robin assignment" @click="setRoundRobin"><span class="track" /></button>
+            <span><b>Round-robin assignment</b><span class="muted small">New WhatsApp chats go to the next active rep in turn. Turn it off to leave new chats unassigned for a manager to hand out.</span></span></div>
+          <div class="prow"><button type="button" class="swt" role="switch" aria-checked="false" aria-label="Auto-send AI drafts" disabled><span class="track" /></button>
+            <span><b>Auto-send AI drafts</b><span class="muted small">Stays off by policy: a person always presses Send.</span></span></div>
+        </div>
+      </section>
+
       <section v-else class="panel">
         <div class="panel-h"><h2>AI</h2><span class="badge" :class="ai.live ? 'success' : ''" style="margin-left:auto">{{ ai.live ? 'Live model' : 'Simulated' }}</span></div>
         <div class="panel-b"><p>Summaries, reply drafts and lead scores are written by <b>{{ ai.model }}</b>. Card and bank numbers are masked before any text is sent to the model.</p>
@@ -169,6 +189,9 @@ const pipeline = computed(() => props.pipelines[0])
 
 <style scoped>
 .narrow{max-width:960px}
+.qt{display:flex;align-items:center;gap:8px}.qt .input{width:130px}
+.policy{display:grid;gap:18px}.prow{display:flex;gap:14px;align-items:flex-start}.prow>span{display:grid;gap:2px}
+button.swt:disabled{opacity:.5;cursor:not-allowed}
 .mchips{display:none;margin-bottom:var(--s4);flex-wrap:wrap}
 .who{display:flex;align-items:center;gap:10px}.who span{display:grid}.who small{font-size:12px}
 .stages{list-style:none;padding:0}

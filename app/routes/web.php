@@ -58,6 +58,10 @@ Route::middleware(['auth', 'company'])->group(function () {
     Route::patch('/deals/{deal}/stage', [DealController::class, 'changeStage'])->whereNumber('deal')->name('deals.stage');
     Route::get('/deals/{deal}/timeline', [DealController::class, 'timelinePage'])->whereNumber('deal')->name('deals.timeline');
     Route::post('/deals/{deal}/notes', [DealController::class, 'addNote'])->whereNumber('deal')->name('deals.notes');
+    Route::post('/deals/{deal}/calls', [DealController::class, 'logCall'])->whereNumber('deal')->name('deals.calls');
+    Route::post('/deals/{deal}/owner', [DealController::class, 'changeOwner'])->whereNumber('deal')->name('deals.owner');
+    Route::post('/deals/{deal}/nudge', [DealController::class, 'nudge'])->whereNumber('deal')->name('deals.nudge');
+    Route::post('/snooze', [TodayController::class, 'snooze'])->name('snooze');
     Route::post('/deals/{deal}/tasks', [DealController::class, 'addTask'])->whereNumber('deal')->name('deals.tasks');
 
     // Inbox WhatsApp (F5)
@@ -65,6 +69,7 @@ Route::middleware(['auth', 'company'])->group(function () {
     Route::get('/inbox/{conversation}', [ConversationController::class, 'show'])->whereNumber('conversation')->name('inbox.show');
     Route::post('/inbox/{conversation}/send', [ConversationController::class, 'send'])->whereNumber('conversation')->name('inbox.send');
     Route::post('/inbox/{conversation}/messages/{message}/retry', [ConversationController::class, 'retry'])->whereNumber(['conversation', 'message'])->name('inbox.retry');
+    Route::post('/inbox/{conversation}/attach', [ConversationController::class, 'attach'])->whereNumber('conversation')->name('inbox.attach');
     Route::post('/inbox/{conversation}/assign', [ConversationController::class, 'assign'])->whereNumber('conversation')->name('inbox.assign');
     Route::post('/inbox/{conversation}/close', [ConversationController::class, 'close'])->whereNumber('conversation')->name('inbox.close');
 
@@ -102,6 +107,8 @@ Route::middleware(['auth', 'company'])->group(function () {
         ->middleware('can:manage-settings')->name('settings.hours');
 
     Route::middleware('can:manage-settings')->prefix('settings')->group(function () {
+        Route::post('/company', [SettingsController::class, 'updateCompany'])->name('settings.company');
+        Route::post('/users/{user}/quota', [SettingsController::class, 'updateQuota'])->whereNumber('user')->name('settings.quota');
         Route::patch('/stages/{stage}', [SettingsPipelineController::class, 'updateStage'])->whereNumber('stage')->name('settings.stage.update');
         Route::post('/stages/{stage}/move', [SettingsPipelineController::class, 'moveStage'])->whereNumber('stage')->name('settings.stage.move');
         Route::delete('/stages/{stage}', [SettingsPipelineController::class, 'deleteStage'])->whereNumber('stage')->name('settings.stage.delete');

@@ -42,17 +42,26 @@ class DealController extends Controller
         $hot = $request->boolean('hot');
         $closing = $request->boolean('closing');
         $mineOnly = $request->boolean('mine');
+        $lostView = $request->boolean('lost');
+        $close = in_array($request->input('close'), ['overdue', 'month', '30d'], true) ? $request->input('close') : null;
+        $health = in_array($request->input('health'), ['stuck', 'unreplied'], true) ? $request->input('health') : null;
         $ownerId = $mineOnly ? $request->user()->id : ($request->filled('owner') ? (int) $request->input('owner') : null);
         $currency = app('relay.company')->currency;
 
         $unreplied = Conversation::view('unreplied')->get(['contact_id', 'last_inbound_at'])->pluck('last_inbound_at', 'contact_id');
 
-        $stages = $pipeline->stages()->get()->map(function (Stage $stage) use ($onlyStale, $ownerId, $currency, $hot, $closing, $unreplied) {
+        $stages = $pipeline->stages()->get()->map(function (Stage $stage) use ($onlyStale, $ownerId, $currency, $hot, $closing, $unreplied, $lostView, $close, $health) {
             $all = $stage->deals()
                 ->with(['contact:id,name', 'account:id,name', 'owner:id,name'])
                 ->when($onlyStale, fn ($q) => $q->stale())
                 ->when($ownerId, fn ($q) => $q->where('owner_id', $ownerId))
                 ->when($hot, fn ($q) => $q->whereHas('contact', fn ($c) => $c->where('score', '>=', 70)))
+                ->when($lostView, fn ($q) => $stage->kind === 'lost' ? $q->where('closed_at', '>=', now()->startOfQuarter()) : $q->whereRaw('1 = 0'))
+                ->when($close === 'overdue', fn ($q) => $q->where('expected_close', '<', now()->toDateString()))
+                ->when($close === 'month', fn ($q) => $q->whereBetween('expected_close', [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()]))
+                ->when($close === '30d', fn ($q) => $q->whereBetween('expected_close', [now()->toDateString(), now()->addDays(30)->toDateString()]))
+                ->when($health === 'stuck', fn ($q) => $q->stale())
+                ->when($health === 'unreplied', fn ($q) => $q->whereIn('contact_id', $unreplied->keys()))
                 ->when($closing, fn ($q) => $q->whereBetween('expected_close', [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()]))
                 ->orderBy('stage_entered_at')
                 ->get();
@@ -78,7 +87,7 @@ class DealController extends Controller
             'pipeline' => $pipeline->only('id', 'name', 'is_default'),
             'stages' => $stages,
             'views' => $this->views($pipeline, $request),
-            'filters' => ['stuck' => $onlyStale, 'hot' => $hot, 'closing' => $closing, 'mine' => $mineOnly, 'owner' => $ownerId, 'view' => in_array($request->input('view'), ['table', 'forecast'], true) ? $request->input('view') : 'board'],
+            'filters' => ['stuck' => $onlyStale, 'hot' => $hot, 'closing' => $closing, 'mine' => $mineOnly, 'lost' => $lostView, 'close' => $close, 'health' => $health, 'owner' => $ownerId, 'view' => in_array($request->input('view'), ['table', 'forecast'], true) ? $request->input('view') : 'board'],
             'owners' => $this->users(),
             'contacts' => Contact::orderBy('name')->limit(300)->get(['id', 'name'])->map(fn ($c) => ['value' => $c->id, 'label' => $c->name]),
             'currency' => $currency,
@@ -96,6 +105,7 @@ class DealController extends Controller
             'mine' => $open()->where('owner_id', $request->user()->id)->count(),
             'stuck' => Deal::stale()->where('deals.pipeline_id', $pipeline->id)->count(),
             'hot' => $open()->whereHas('contact', fn ($c) => $c->where('score', '>=', 70))->count(),
+            'lost' => Deal::where('pipeline_id', $pipeline->id)->where('closed_at', '>=', now()->startOfQuarter())->whereHas('stage', fn ($q) => $q->where('kind', 'lost'))->count(),
             'closing' => $open()->whereBetween('expected_close', [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()])->count(),
         ];
     }
@@ -133,6 +143,7 @@ class DealController extends Controller
                     'phone_e164' => $deal->contact->phone_e164,
                     'account' => $deal->contact->account?->only('id', 'name'),
                     'score' => $deal->contact->score,
+                    'source' => $deal->contact->source,
                 ] : null,
                 'account' => $deal->account?->only('id', 'name'),
                 'lost_reason' => $deal->lost_reason,
@@ -296,6 +307,40 @@ class DealController extends Controller
         return back();
     }
 
+    public function logCall(Request $request, Deal $deal): RedirectResponse
+    {
+        $data = $request->validate(['text' => ['required', 'string', 'max:2000'], 'minutes' => ['nullable', 'integer', 'min:1', 'max:600']]);
+
+        Activity::record($deal->company_id, $deal, 'call', $request->user()->id, ['text' => $data['text'], 'minutes' => $data['minutes'] ?? null]);
+
+        return back();
+    }
+
+    public function changeOwner(Request $request, Deal $deal): RedirectResponse
+    {
+        abort_unless($request->user()->isManager(), 403);
+        $data = $request->validate(['owner_id' => ['required', 'integer']]);
+        $owner = User::whereKey($data['owner_id'])->whereHas('companies', fn ($q) => $q->whereKey($deal->company_id))->firstOrFail();
+
+        $deal->update(['owner_id' => $owner->id]);
+        Activity::record($deal->company_id, $deal, 'assignment', $request->user()->id, ['from' => $deal->owner?->name, 'to' => $owner->name]);
+
+        return back();
+    }
+
+    /** One tap from Today: a follow-up task for the owner, due today. */
+    public function nudge(Request $request, Deal $deal): RedirectResponse
+    {
+        Task::create([
+            'company_id' => $deal->company_id, 'assignee_id' => $deal->owner_id ?? $request->user()->id,
+            'subject_type' => Deal::class, 'subject_id' => $deal->id,
+            'title' => "Nudge: move {$deal->title} forward", 'kind' => 'manual', 'due_at' => now()->endOfDay(),
+        ]);
+        Activity::record($deal->company_id, $deal, 'task', $request->user()->id, ['event' => 'task_created', 'title' => 'Nudge']);
+
+        return back()->with('success', 'Follow-up created for today.');
+    }
+
     public function addTask(Request $request, Deal $deal): RedirectResponse
     {
         $data = $request->validate([
@@ -355,6 +400,8 @@ class DealController extends Controller
             'days_in_stage' => floor($deal->daysInStage()),
             'stale' => $deal->isStale(),
             'stale_after_days' => $deal->stage->stale_after_days,
+            'closed_at' => $deal->closed_at?->toISOString(),
+            'expected_close' => $deal->expected_close?->toDateString(),
         ];
     }
 

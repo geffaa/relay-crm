@@ -40,10 +40,11 @@ class SettingsController extends Controller
                 'email' => $u->email,
                 'role' => $u->roleIn($company),
                 'is_active' => (bool) $memberships[$u->id]->is_active,
+                'quota' => $memberships[$u->id]->quarterly_quota !== null ? (float) $memberships[$u->id]->quarterly_quota : null,
             ]);
 
         return Inertia::render('Settings', [
-            'company' => $company->only('id', 'name', 'currency', 'timezone'),
+            'company' => $company->only('id', 'name', 'currency', 'timezone', 'round_robin'),
             'users' => $users,
             'pipelines' => Pipeline::with(['stages' => fn ($q) => $q->orderBy('position')->withCount('deals')])->orderBy('name')->get()->map(fn ($p) => [
                 'id' => $p->id, 'name' => $p->name,
@@ -62,6 +63,24 @@ class SettingsController extends Controller
                 'kind', 'model', 'input_tokens', 'output_tokens', 'status', 'created_at',
             ])->map(fn ($r) => [...$r->toArray(), 'created_at' => $r->created_at->toISOString()]),
         ]);
+    }
+
+    public function updateCompany(Request $request): RedirectResponse
+    {
+        $data = $request->validate(['round_robin' => ['required', 'boolean']]);
+        app('relay.company')->update($data);
+
+        return back()->with('success', 'Assignment setting saved.');
+    }
+
+    public function updateQuota(Request $request, User $user): RedirectResponse
+    {
+        $data = $request->validate(['quota' => ['nullable', 'numeric', 'min:0', 'max:100000000000']]);
+
+        DB::table('company_user')->where('company_id', app('relay.company')->id)->where('user_id', $user->id)
+            ->update(['quarterly_quota' => $data['quota'] ?? null]);
+
+        return back()->with('success', 'Target saved.');
     }
 
     public function updateRole(Request $request, User $user): RedirectResponse

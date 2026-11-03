@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\Conversation;
+use App\Models\Lead;
 use App\Models\Task;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -39,6 +40,7 @@ class HandleInertiaRequests extends Middleware
                 ])->all(),
             ] : null,
             'badges' => fn () => $request->user() && app()->bound('relay.company') ? [
+                'leads' => Lead::where('status', 'new')->count(),
                 'inbox' => Conversation::view('unreplied')->count(),
                 'today' => Task::query()->where('assignee_id', $request->user()->id)->whereNotIn('kind', ['unreplied', 'stale_deal'])->whereNull('done_at')->where('due_at', '<=', now()->endOfDay())->count(),
             ] : null,

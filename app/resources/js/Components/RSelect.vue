@@ -12,9 +12,11 @@ const props = defineProps({
   size: { type: String, default: '' }, // '', 'sm'
   disabled: { type: Boolean, default: false },
   block: { type: Boolean, default: false },
+  footer: { type: Object, default: null }, // { label, hint } row shown under the options
 })
 const emit = defineEmits(['update:modelValue', 'change'])
 
+const initials = (n) => String(n).split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
 const uid = `rs-${Math.random().toString(36).slice(2, 8)}`
 const open = ref(false)
 const active = ref(0)
@@ -99,7 +101,7 @@ onBeforeUnmount(() => { document.removeEventListener('pointerdown', outside); wi
       @click="open ? hide() : show()"
       @keydown="onKey"
     >
-      <span class="rsel-v" :class="{ ph: !selected }">{{ selected ? selected.label : placeholder }}</span>
+      <span v-if="selected?.avatar" class="av xs rsel-av" :class="`av-${(String(selected.label).charCodeAt(0) % 7) + 1}`">{{ initials(selected.label) }}</span><span class="rsel-v" :class="{ ph: !selected }">{{ selected ? selected.label : placeholder }}</span>
       <ChevronDown class="icon xs" aria-hidden="true" />
     </button>
     <Teleport to="body"><ul v-if="open" :id="`${uid}-list`" ref="list" class="rsel-list pop" role="listbox" :style="pos" :aria-label="label || undefined">
@@ -114,10 +116,13 @@ onBeforeUnmount(() => { document.removeEventListener('pointerdown', outside); wi
         @pointerenter="active = i"
         @pointerdown.prevent="pick(o)"
       >
-        <span class="rsel-l">{{ o.label }}<small v-if="o.hint">{{ o.hint }}</small></span>
+        <span v-if="o.avatar" class="av xs" :class="`av-${(String(o.label).charCodeAt(0) % 7) + 1}`">{{ initials(o.label) }}</span>
+        <span class="rsel-l">{{ o.label }}<small v-if="o.hint && !o.avatar">{{ o.hint }}</small></span>
+        <small v-if="o.hint && o.avatar" class="rsel-h">{{ o.hint }}</small>
         <Check v-if="o.value === modelValue" class="icon xs" aria-hidden="true" />
       </li>
       <li v-if="!shown.length" class="rsel-none" role="presentation">No matches</li>
+      <li v-if="footer" class="rsel-foot" role="presentation"><span>{{ footer.label }}</span><small>{{ footer.hint }}</small></li>
     </ul></Teleport>
   </div>
 </template>

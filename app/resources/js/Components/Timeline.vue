@@ -1,11 +1,11 @@
 <script setup>
 import { computed } from 'vue'
 import { Link } from '@inertiajs/vue3'
-import { ArrowRight, GitMerge, ListChecks, MessageCircle, Sparkles, StickyNote, Target, UserPlus, ArrowRightLeft } from 'lucide-vue-next'
+import { ArrowRight, GitMerge, ListChecks, MessageCircle, Phone, Sparkles, StickyNote, Target, UserPlus, ArrowRightLeft } from 'lucide-vue-next'
 
 const props = defineProps({ items: { type: Array, required: true } })
 
-const ICON = { note: StickyNote, message: MessageCircle, stage_change: ArrowRightLeft, task: ListChecks, ai_summary: Sparkles, assignment: UserPlus, score_override: Target, lead_conversion: UserPlus, contact_merged: GitMerge }
+const ICON = { call: Phone, note: StickyNote, message: MessageCircle, stage_change: ArrowRightLeft, task: ListChecks, ai_summary: Sparkles, assignment: UserPlus, score_override: Target, lead_conversion: UserPlus, contact_merged: GitMerge }
 const TONE = { ai_summary: 'ai', message: 'wa' }
 function head(a) {
   const who = a.actor ?? 'System'
@@ -16,6 +16,7 @@ function head(a) {
     case 'ai_summary': return { t: 'AI summary updated', sub: `${b.points ?? 0} key points`, link: b.conversation_id ? `/inbox/${b.conversation_id}` : null }
     case 'assignment': return { t: `Chat assigned to ${b.to ?? 'someone'}`, by: a.actor, sub: b.from ? `Was ${b.from}` : null }
     case 'score_override': return { t: `Lead score changed to ${b.to ?? ''}`, by: a.actor, sub: b.reason }
+    case 'call': return { t: 'Call logged', by: a.actor, sub: b.minutes ? `${b.minutes} min` : null, note: b.text }
     case 'lead_conversion': return { t: 'Converted from lead', by: a.actor }
     case 'contact_merged': return { t: 'Contacts merged', by: a.actor }
     case 'task': return { t: `Task added: ${b.title ?? ''}`, by: a.actor }

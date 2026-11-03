@@ -72,6 +72,7 @@ class DatabaseSeeder extends Seeder
         $this->createGeneratedContacts(70);
         $number = $this->createWhatsApp($data['templates']);
         $this->createConversations($data, $number);
+        $this->createHistory();
         $this->createDeals($pipeline, $data);
         $this->createScores();
         $this->createSummaries();
@@ -90,7 +91,7 @@ class DatabaseSeeder extends Seeder
             'dimas' => ['Dimas Prakoso', 'rep'], 'elena' => ['Elena Wijaya', 'rep'],
         ] as $key => [$name, $role]) {
             $user = User::create(['name' => $name, 'email' => "{$key}@northwind.test", 'password' => Hash::make('password')]);
-            $user->companies()->attach($this->company->id, ['role' => $role]);
+            $user->companies()->attach($this->company->id, ['role' => $role, 'quarterly_quota' => ['bimo' => 120_000_000, 'citra' => 250_000_000, 'dimas' => 150_000_000, 'elena' => 100_000_000][$key] ?? null]);
             $user->update(['current_company_id' => $this->company->id]);
             $this->users[$key] = $user;
         }
@@ -205,6 +206,23 @@ class DatabaseSeeder extends Seeder
     }
 
     /** @param array<string, mixed> $data */
+    /** Older, finished chats so response-time trends have history to draw from. */
+    private function createHistory(): void
+    {
+        $number = WhatsAppNumber::first();
+        $contacts = Contact::query()->whereDoesntHave('conversations')->orderBy('id')->limit(16)->get();
+        foreach ($contacts as $i => $contact) {
+            $start = now()->subDays(3 + $i * 3)->setTime(10 + ($i % 6), 5 + ($i * 7) % 50);
+            $minutes = [8, 14, 22, 11, 35, 9, 18, 26, 12, 7, 30, 16, 10, 20, 13, 24][$i];
+            $assignee = $this->users[['bimo', 'citra', 'dimas', 'elena'][$i % 4]];
+            $conversation = new Conversation(['contact_id' => $contact->id, 'whatsapp_number_id' => $number->id, 'status' => 'closed', 'assignee_id' => $assignee->id, 'last_inbound_at' => $start, 'last_message_at' => $start->copy()->addMinutes($minutes), 'unread_count' => 0]);
+            $conversation->company_id = $this->company->id;
+            $conversation->save();
+            Message::create(['conversation_id' => $conversation->id, 'wamid' => 'sim.hist.'.bin2hex(random_bytes(6)), 'direction' => 'in', 'type' => 'text', 'body' => 'Halo, mau tanya layanan website dan harganya ya.', 'status' => 'delivered', 'created_at' => $start]);
+            Message::create(['conversation_id' => $conversation->id, 'direction' => 'out', 'type' => 'text', 'body' => 'Halo Kak, terima kasih sudah menghubungi. Boleh ceritakan kebutuhannya?', 'status' => 'read', 'sent_by' => $assignee->id, 'created_at' => $start->copy()->addMinutes($minutes)]);
+        }
+    }
+
     private function createDeals(Pipeline $pipeline, array $data): void
     {
         $openOrder = ['New', 'Qualified', 'Proposal', 'Negotiation'];
@@ -255,7 +273,7 @@ class DatabaseSeeder extends Seeder
             ['SEO 12 outlets, 6 months', 'dimas', 'Draft the outlet page structure', 48], ['Performance ads retainer', 'dimas', 'Send the single-invoice proposal', -3],
             ['Headless commerce build', 'bimo', 'Scope workshop with Sukha', 72], ['Conversion audit', 'dimas', 'Chase the decision from Finwise', 5],
         ] as [$title, $who, $task, $hours]) {
-            Task::create(['company_id' => $this->company->id, 'assignee_id' => $this->users[$who]->id, 'subject_type' => Deal::class, 'subject_id' => $byTitle[$title]->id, 'title' => $task, 'kind' => 'manual', 'due_at' => now()->addHours($hours)]);
+            Task::create(['company_id' => $this->company->id, 'assignee_id' => $this->users[$who]->id, 'subject_type' => Deal::class, 'subject_id' => $byTitle[$title]->id, 'title' => $task, 'kind' => ['Send timeline and proposal' => 'send', 'Call Agus after 14:30' => 'call', 'Chase the decision from Finwise' => 'call', 'Scope workshop with Sukha' => 'meeting', 'Draft the outlet page structure' => 'send'][$task] ?? 'manual', 'due_at' => now()->addHours($hours)]);
         }
     }
 

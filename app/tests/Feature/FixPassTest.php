@@ -8,16 +8,20 @@ use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Deal;
 use App\Models\Pipeline;
+use App\Models\Snooze;
 use App\Models\Stage;
 use App\Models\WhatsAppNumber;
 use App\Notifications\ConversationAssigned;
 use App\Services\AI\AIClient;
 use App\Services\AI\ConversationSummarizer;
+use App\Services\RoundRobinAssigner;
 use App\Support\Money;
 use App\Support\Redactor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class FixPassTest extends TestCase
@@ -197,5 +201,70 @@ class FixPassTest extends TestCase
         $theirStage = Stage::forceCreate(['pipeline_id' => $foreign->id, 'name' => 'Theirs', 'position' => 1, 'kind' => 'open']);
         app()->instance('relay.company', $this->company);
         $this->actingAs($this->admin)->patch("/settings/stages/{$theirStage->id}", ['name' => 'Hacked'])->assertNotFound();
+    }
+
+    public function test_snoozed_chat_leaves_only_my_queue_and_reappears_later(): void
+    {
+        $conv = $this->conversation($this->contact('Snooze Me'));
+        $conv->messages()->create(['direction' => 'in', 'type' => 'text', 'body' => 'hi', 'status' => 'delivered', 'created_at' => now()->subHour()]);
+
+        $this->actingAs($this->rep)->get('/')->assertInertia(fn ($p) => $p->has('replies', 1));
+        $this->actingAs($this->rep)->post('/snooze', ['type' => 'conversation', 'id' => $conv->id, 'hours' => 4])->assertRedirect();
+        $this->actingAs($this->rep)->get('/')->assertInertia(fn ($p) => $p->has('replies', 0));
+        $this->actingAs($this->manager)->get('/?scope=team')->assertInertia(fn ($p) => $p->has('replies', 1));
+
+        Snooze::query()->update(['until' => now()->subMinute()]);
+        $this->actingAs($this->rep)->get('/')->assertInertia(fn ($p) => $p->has('replies', 1));
+    }
+
+    public function test_nudge_call_and_owner_change_on_a_deal(): void
+    {
+        $deal = $this->openDeal(1000, 'IDR');
+        $other = $this->makeUser('Rep Three', 'rep');
+
+        $this->actingAs($this->rep)->post("/deals/{$deal->id}/nudge")->assertRedirect();
+        $this->assertDatabaseHas('tasks', ['subject_id' => $deal->id, 'kind' => 'manual', 'assignee_id' => $this->rep->id]);
+
+        $this->actingAs($this->rep)->post("/deals/{$deal->id}/calls", ['text' => 'Agreed scope', 'minutes' => 12])->assertRedirect();
+        $this->assertTrue(Activity::where('type', 'call')->where('subject_id', $deal->id)->exists());
+
+        $this->actingAs($this->rep)->post("/deals/{$deal->id}/owner", ['owner_id' => $other->id])->assertForbidden();
+        $this->actingAs($this->manager)->post("/deals/{$deal->id}/owner", ['owner_id' => $other->id])->assertRedirect();
+        $this->assertSame($other->id, $deal->fresh()->owner_id);
+    }
+
+    public function test_quota_feeds_the_target_bar_and_round_robin_can_be_switched_off(): void
+    {
+        $this->actingAs($this->admin)->post("/settings/users/{$this->rep->id}/quota", ['quota' => 300_000_000])->assertRedirect();
+        $this->actingAs($this->manager)->get('/insights')->assertInertia(fn ($p) => $p->where('target.amount', 300_000_000)->where('reps.0.target', 300_000_000));
+
+        $this->actingAs($this->manager)->post('/settings/company', ['round_robin' => false])->assertForbidden();
+        $this->actingAs($this->admin)->post('/settings/company', ['round_robin' => false])->assertRedirect();
+        $this->assertNull(app(RoundRobinAssigner::class)->nextRep($this->company->fresh()));
+    }
+
+    public function test_pipeline_close_date_and_lost_this_quarter_filters(): void
+    {
+        $late = $this->openDeal(1, 'IDR');
+        $late->update(['expected_close' => now()->subDays(3)->toDateString()]);
+        $later = $this->openDeal(1, 'IDR');
+        $later->update(['expected_close' => now()->addDays(60)->toDateString()]);
+
+        $this->actingAs($this->manager)->get('/pipeline?close=overdue&pipeline='.$late->pipeline_id)->assertInertia(fn ($p) => $p->where('stages.0.count', 1));
+        $this->actingAs($this->manager)->get('/pipeline?lost=1&pipeline='.$late->pipeline_id)->assertInertia(fn ($p) => $p->where('stages.0.count', 0));
+    }
+
+    public function test_simulated_attachment_is_stored_and_validated(): void
+    {
+        Storage::fake('public');
+        $conv = $this->conversation($this->contact('Photo'));
+        $conv->messages()->create(['direction' => 'in', 'type' => 'text', 'body' => 'send photo', 'status' => 'delivered', 'created_at' => now()->subMinutes(5)]);
+
+        $ok = UploadedFile::fake()->image('brief.png');
+        $this->actingAs($this->rep)->post("/inbox/{$conv->id}/attach", ['file' => $ok])->assertRedirect();
+        $this->assertSame('image', $conv->messages()->latest('id')->first()->type);
+
+        $bad = UploadedFile::fake()->create('run.exe', 10);
+        $this->actingAs($this->rep)->post("/inbox/{$conv->id}/attach", ['file' => $bad])->assertSessionHasErrors('file');
     }
 }

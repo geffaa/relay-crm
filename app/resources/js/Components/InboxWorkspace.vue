@@ -9,16 +9,16 @@ import Modal from '@/Components/Modal.vue'
 import UserAvatar from '@/Components/UserAvatar.vue'
 import InboxDetails from '@/Components/InboxDetails.vue'
 import {
-  AlertTriangle, Check, CheckCheck, ChevronLeft, Clock, FileText, Flame, Inbox as InboxIcon, MessageCircle,
+  AlertTriangle, Bot, Check, CheckCheck, ChevronLeft, MoreVertical, Phone, Clock, FileText, Flame, Inbox as InboxIcon, MessageCircle,
   Paperclip, PanelRight, RotateCw, Send, Sparkles, User, UserRound,
 } from 'lucide-vue-next'
-import { scoreColor, shortDate, waited } from '@/lib/format'
+import { money, scoreColor, shortDate, waited } from '@/lib/format'
 
 const props = defineProps({
   view: String, counts: Object, conversations: Array, channel: Object,
   conversation: { type: Object, default: null }, messages: { type: Array, default: () => [] },
   templates: { type: Array, default: () => [] }, contact: Object, scoreDetail: Object,
-  openDeal: Object, summary: Object, users: { type: Array, default: () => [] },
+  openDeal: Object, summary: Object, users: { type: Array, default: () => [] }, roundRobin: { type: Boolean, default: true },
 })
 
 const active = computed(() => props.conversation?.id ?? null)
@@ -43,7 +43,16 @@ const views = computed(() => [
 ])
 const rowHref = (c) => `/inbox/${c.id}?view=${props.view}`
 
-const assignOptions = computed(() => props.users.map((u) => ({ value: u.id, label: u.name })))
+const assignOptions = computed(() => props.users.map((u) => ({ value: u.id, label: u.name, avatar: true, hint: `${u.open ?? 0} open` })))
+const rrFooter = computed(() => ({ label: 'Round robin', hint: props.roundRobin ? 'auto' : 'off' }))
+const fileInput = ref(null)
+function attachFile(e) {
+  const file = e.target.files[0]
+  e.target.value = ''
+  if (!file) return
+  router.post(`/inbox/${props.conversation.id}/attach`, { file }, { forceFormData: true, preserveScroll: true, onError: (er) => (ai.value.error = er.file ?? 'Could not attach the file.') })
+}
+const canEditDraft = ref(false)
 const templateOptions = computed(() => props.templates.map((t) => ({ value: t.id, label: t.name, hint: t.body.slice(0, 48) + (t.body.length > 48 ? '…' : '') })))
 const windowLabel = computed(() => {
   const c = props.conversation
@@ -180,25 +189,35 @@ const oldest = computed(() => { const w = props.conversations.filter((c) => c.wa
 
     <div v-else class="conv">
       <div class="thread-col">
+        <header class="mhead">
+          <Link href="/inbox" class="back2" aria-label="Back to the list"><ChevronLeft class="icon" /></Link>
+          <UserAvatar :name="contact.name" size="lg" />
+          <div class="who"><b>{{ contact.name }}</b><span class="muted small">WhatsApp<template v-if="contact.score != null"> · score {{ contact.score }}</template></span></div>
+          <a v-if="contact.phone_e164" class="ib" :href="`tel:${contact.phone_e164}`" aria-label="Call"><Phone class="icon" /></a>
+          <button type="button" class="ib" aria-label="Chat actions" @click="detailsOpen = true"><MoreVertical class="icon" /></button>
+        </header>
+        <div v-if="openDeal" class="mdeal"><span class="stage"><i style="background:#8A3FC0" />{{ openDeal.stage }}</span><b>{{ openDeal.title }}</b><span class="muted">{{ openDeal.value ? money(openDeal.value, openDeal.currency) : '' }}</span><Link :href="`/deals/${openDeal.id}`">Open deal</Link></div>
+
         <header class="chead">
           <Link href="/inbox" class="back" aria-label="Back to the list"><ChevronLeft class="icon sm" /></Link>
           <UserAvatar :name="contact.name" size="lg" />
           <div class="who"><b>{{ contact.name }}</b><span class="muted small"><template v-if="contact.account">{{ contact.account.name }} · </template>{{ contact.phone_e164 }}</span></div>
           <span v-if="channel.mode === 'simulated'" class="badge wa"><MessageCircle class="icon xs" />WhatsApp · simulated</span>
           <div class="hr">
-            <RSelect :model-value="conversation.assignee?.id ?? null" :options="assignOptions" placeholder="Unassigned" label="Assignee" size="sm" @change="assign" />
+            <RSelect :model-value="conversation.assignee?.id ?? null" :options="assignOptions" :footer="rrFooter" placeholder="Unassigned" label="Assignee" size="sm" @change="assign" />
             <button type="button" class="btn sm" @click="close"><Check class="icon xs" />Close<kbd>E</kbd></button>
           </div>
         </header>
 
         <div ref="threadEl" class="thread" tabindex="0" aria-label="Messages">
+          <p class="sysrow"><Bot class="icon xs" />Chat started on WhatsApp · {{ conversation.assignee ? `assigned to ${conversation.assignee.name}${roundRobin ? ' (round robin)' : ''}` : 'not assigned yet' }}</p>
           <template v-for="(m, i) in messages" :key="m.id">
             <div v-if="newDay(i)" class="day"><span>{{ dayLabel(m.created_at) }}</span></div>
             <div :id="`msg-${m.id}`" class="brow" :class="{ out: m.direction === 'out' }">
               <div class="bubble" :class="{ failed: m.status === 'failed', flash: flashId === m.id }">
                 <span v-if="m.type === 'template'" class="badge brand" style="margin-bottom:4px">Template</span>
-                <span v-if="m.media" class="badge"><FileText class="icon xs" />{{ m.media.filename ?? 'attachment' }}</span>
-                <p>{{ m.body }}</p>
+                <template v-if="m.media"><a v-if="m.media.url && m.media.mime_type?.startsWith('image/')" :href="m.media.url" target="_blank" rel="noopener"><img :src="m.media.url" :alt="m.media.filename" class="mimg"></a><a v-else-if="m.media.url" :href="m.media.url" target="_blank" rel="noopener" class="badge"><FileText class="icon xs" />{{ m.media.filename }}</a><span v-else class="badge"><FileText class="icon xs" />{{ m.media.filename ?? 'attachment' }}</span></template>
+                <p v-if="m.body">{{ m.body }}</p>
                 <div class="bm fig">{{ clock(m.created_at) }} · #{{ m.seq }}<template v-if="m.sent_by"> · {{ m.sent_by }}</template>
                   <CheckCheck v-if="m.direction === 'out' && m.status === 'read'" class="icon xs" /><Check v-else-if="m.direction === 'out' && m.status !== 'failed'" class="icon xs" />
                 </div>
@@ -209,6 +228,18 @@ const oldest = computed(() => { const w = props.conversations.filter((c) => c.wa
           </template>
         </div>
 
+        <div v-if="ai.draftedFrom && reply.body && !canEditDraft" class="msuggest">
+          <b><Sparkles class="icon xs" />Suggested reply · edit before sending</b>
+          <p>{{ reply.body }}</p>
+          <div class="mrow"><button type="button" class="btn" @click="canEditDraft = true; nextTick(() => document.querySelector('.mcomposer textarea')?.focus())">Edit</button><button type="button" class="btn primary" :disabled="reply.processing" @click="send">Use reply</button></div>
+        </div>
+        <form class="mcomposer" @submit.prevent="send">
+          <input ref="mfile" type="file" class="sr" tabindex="-1" accept=".jpg,.jpeg,.png,.pdf" aria-label="Attachment" @change="attachFile">
+          <button type="button" class="ib" aria-label="Attach file" :disabled="!conversation.can_send_freeform" @click="$refs.mfile.click()"><Paperclip class="icon" /></button>
+          <textarea v-model="reply.body" rows="1" class="mpill" :placeholder="conversation.can_send_freeform ? 'Message' : 'Window closed: use a template'" :disabled="!conversation.can_send_freeform && !reply.template_id" aria-label="Message" />
+          <button v-if="!reply.body && conversation.can_send_freeform" type="button" class="ib" :disabled="ai.drafting" aria-label="Suggest a reply" @click="draft"><Sparkles class="icon" /></button>
+          <button class="msend" :disabled="reply.processing || !reply.body" aria-label="Send"><Send class="icon" /></button>
+        </form>
         <div class="composer-wrap">
           <p v-if="windowLabel" class="win"><Clock class="icon xs" />Free reply window open for {{ windowLabel }} · after that only approved templates</p>
           <p v-else class="win warn"><AlertTriangle class="icon xs" />The 24-hour window is closed. Send an approved template to reopen the chat.</p>
@@ -224,10 +255,11 @@ const oldest = computed(() => { const w = props.conversations.filter((c) => c.wa
               <textarea v-model="reply.body" class="composer-input" rows="3" :disabled="!conversation.can_send_freeform && !reply.template_id" :placeholder="conversation.can_send_freeform ? 'Write a reply…  (R to focus)' : 'Choose a template to reopen the chat'" aria-label="Reply" />
               <span v-if="reply.errors.body" class="ferr">{{ reply.errors.body }}</span><span v-if="ai.error" class="ferr">{{ ai.error }}</span>
               <div class="cf">
-                <span v-if="ai.draftedFrom" class="ai-note"><Sparkles class="icon xs" />AI draft · edit before sending</span>
+                <span v-if="ai.draftedFrom" class="ai-note"><Sparkles class="icon xs" />AI draft from #{{ Math.max(1, messages.length - 29) }}–#{{ messages.length }} · edit before sending</span>
                 <span v-else class="muted small">Drafts are suggestions. Nothing is sent until you press Send.</span>
                 <span class="sp" />
-                <button type="button" class="ib" disabled title="Attachments come later" aria-label="Attach file"><Paperclip class="icon sm" /></button>
+                <input ref="fileInput" type="file" class="sr" tabindex="-1" accept=".jpg,.jpeg,.png,.pdf" aria-label="Attachment" @change="attachFile">
+                <button type="button" class="ib" title="Attach an image or PDF (up to 5 MB)" aria-label="Attach file" :disabled="!conversation.can_send_freeform" @click="fileInput.click()"><Paperclip class="icon sm" /></button>
                 <button type="button" class="btn sm" :disabled="ai.drafting" @click="draft"><Sparkles class="icon xs" />{{ ai.drafting ? 'Drafting…' : ai.draftedFrom ? 'Redraft' : 'Draft with AI' }}</button>
                 <button class="btn sm primary" :disabled="reply.processing || !reply.body"><Send class="icon xs" />Send<kbd>⌘↵</kbd></button>
               </div>
@@ -252,12 +284,16 @@ const oldest = computed(() => { const w = props.conversations.filter((c) => c.wa
     </div>
 
     <Modal v-if="detailsOpen" title="Details" width="420px" @close="detailsOpen = false">
+      <div class="mact"><RSelect :model-value="conversation.assignee?.id ?? null" :options="assignOptions" :footer="rrFooter" placeholder="Unassigned" label="Assignee" block @change="assign" /><button type="button" class="btn" @click="close"><Check class="icon xs" />Close chat</button></div>
       <InboxDetails :contact="contact" :open-deal="openDeal" :score-detail="scoreDetail" :summary="shownSummary" :summarizing="ai.summarizing" :seq-of="seqOf" @summarize="summarize" @jump="jump" />
     </Modal>
   </AppShell>
 </template>
 
 <style scoped>
+.mhead,.mdeal,.mcomposer,.msuggest{display:none}
+.sysrow{display:flex;align-items:center;gap:6px;justify-content:center;font-size:12px;color:var(--text-3);margin:2px 0 6px}
+.mimg{display:block;max-width:240px;max-height:200px;border-radius:8px;margin-bottom:6px}
 .clist{overflow-y:auto;flex:1;min-height:0}
 .crow{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:start;padding:11px 12px;border-bottom:1px solid var(--line);color:var(--text)}
 .crow:hover{background:var(--surface-2);text-decoration:none}
@@ -327,9 +363,29 @@ const oldest = computed(() => { const w = props.conversations.filter((c) => c.wa
 }
 @media (max-width:720px){
   .cnt{display:none}
-  .chead .hr{margin-left:0;width:100%}
+  .chead,.composer-wrap{display:none}
+  .mhead{display:flex;align-items:center;gap:10px;padding:8px var(--s3);background:var(--surface);border-bottom:1px solid var(--line)}
+  .mhead .who{display:grid;flex:1;min-width:0}.mhead .who b{font-size:16px}
+  .mhead :deep(.av.lg){width:36px;height:36px;font-size:12px}
+  .back2{display:grid;place-items:center;width:32px;height:32px;color:var(--text-2)}
+  .mdeal{display:flex;align-items:center;gap:8px;padding:8px var(--s4);background:var(--brand-tint);border-bottom:1px solid var(--line);font-size:13px;white-space:nowrap;overflow:hidden}
+  .mdeal b{overflow:hidden;text-overflow:ellipsis;font-weight:600}.mdeal a{margin-left:auto;font-weight:500;flex:none}
+  .msuggest{display:block;margin:var(--s3);padding:12px;border:1px solid #DED4FB;border-radius:var(--r-lg);background:var(--surface)}
+  .msuggest b{display:flex;gap:6px;align-items:center;color:var(--brand-strong);font-size:13px}.msuggest p{margin:6px 0 10px}
+  .mrow{display:grid;grid-template-columns:1fr 1.4fr;gap:8px}.mrow .btn{height:38px;justify-content:center}
+  .mcomposer{display:flex;align-items:flex-end;gap:6px;padding:8px var(--s3);background:var(--surface);border-top:1px solid var(--line)}
+  .mpill{flex:1;min-height:40px;max-height:120px;border:1px solid var(--line-strong);border-radius:20px;padding:9px 14px;font:inherit;resize:none;background:var(--surface-2)}
+  .mpill:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+  .msend{width:40px;height:40px;border-radius:50%;border:0;background:var(--brand);color:#fff;display:grid;place-items:center;flex:none}.msend:disabled{opacity:.45}
+  .mcomposer .ib{width:40px;height:40px}
   .chead{padding:10px var(--s4)}.thread{padding:12px var(--s4)}.composer-wrap{padding:8px var(--s4) var(--s4)}
   .bubble{max-width:90%}.cf kbd{display:none}
   .conv{min-height:calc(100vh - 52px - 60px)}
 }
+</style>
+
+<style>
+@media (max-width:720px){ body:has(.mhead) .topbar{display:none} body:has(.mhead) .app{padding-bottom:0;height:100dvh;overflow:hidden} body:has(.mhead) .main{overflow:hidden;height:calc(100dvh - 60px)} body:has(.mhead) .conv{height:100%;min-height:0} body:has(.mhead) .thread-col{height:100%;border-right:0} .mact{display:grid;grid-template-columns:1fr auto;gap:8px;margin-bottom:16px} }
+.mact{display:none}
+@media (max-width:720px){ .modal .mact{display:grid} }
 </style>
