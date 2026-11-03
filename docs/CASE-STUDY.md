@@ -58,7 +58,7 @@ its deal**, and where AI is only allowed to speak with citations.
 
 ## Verification
 
-- **64 automated tests** (Pest): unit (E.164 normalization, score math) +
+- **80 automated tests** (Pest): unit (E.164 normalization, score math) +
   feature (webhook signature → 401, `wamid` dedup, 24h window enforcement,
   tenant isolation, merge/conversion dedup safety, AI output validation).
 - **PHPStan level 5** with zero errors; Pint for style.
